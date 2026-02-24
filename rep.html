@@ -18,17 +18,17 @@
 
   <div class="container">
 
+    <!-- AUTH -->
     <div id="authCard" class="card">
       <h2>Sign in</h2>
       <div class="row">
         <div class="card" style="flex:1;min-width:280px">
           <h2>Login</h2>
           <div class="flex">
-            <input id="loginUsername" placeholder="username (e.g., jsmith2)" />
+            <input id="loginUsername" placeholder="username (e.g., jsmith)" />
             <input id="loginPin" placeholder="PIN" inputmode="numeric" />
             <button class="primary" id="loginBtn">Login</button>
           </div>
-          <small>Username = first initial + last name (duplicates get a number).</small>
         </div>
 
         <div class="card" style="flex:1;min-width:280px">
@@ -39,28 +39,27 @@
             <input id="phone" placeholder="Cell phone" />
           </div>
 
-          <!-- ✅ Vendor selection (clear label + Other textbox) -->
           <div style="margin-top:10px">
-            <label for="vendorSelect"><small><b>Vendor</b> (select your company)</small></label>
-            <select id="vendorSelect" style="width:100%; margin-top:6px;"></select>
+            <label><small><b>Vendor</b> (select your company)</small></label>
+            <select id="vendorSelect" style="width:100%;margin-top:6px;"></select>
 
             <div id="vendorOtherWrap" class="hidden" style="margin-top:10px">
-              <label for="vendorOther"><small><b>If Other, type your vendor</b></small></label>
-              <input id="vendorOther" placeholder="Type your vendor name..." style="width:100%; margin-top:6px;" />
+              <label><small><b>If Other, type your vendor</b></small></label>
+              <input id="vendorOther" placeholder="Type vendor name..." style="width:100%;margin-top:6px;" />
             </div>
 
-            <small>Don’t see your vendor? Choose <b>Other</b> and type it in.</small>
+            <small>Don’t see your vendor? Choose <b>Other</b>.</small>
           </div>
 
           <div class="flex" style="margin-top:10px">
             <input id="pin" placeholder="Choose PIN (4+ digits)" inputmode="numeric" />
             <button class="primary" id="signupBtn">Create account</button>
           </div>
-          <small>After signup you’ll see your exact username (e.g., jsmith2).</small>
         </div>
       </div>
     </div>
 
+    <!-- APP -->
     <div id="appCard" class="card hidden">
       <h2>New Batch</h2>
 
@@ -69,7 +68,7 @@
         <div class="flex">
           <input id="searchQ" placeholder="Search by description..." style="min-width:320px" />
           <button id="searchBtn">Search</button>
-          <span id="searchStatus"><small></small></span>
+          <span id="searchStatus"></span>
         </div>
         <div id="searchResults" style="margin-top:10px"></div>
       </div>
@@ -81,22 +80,28 @@
           <button id="clearBatchBtn" class="danger">Clear</button>
           <small id="batchMsg"></small>
         </div>
+
         <div style="overflow:auto;margin-top:10px">
-          <table class="table" id="batchTable">
+          <table class="table">
             <thead>
               <tr>
                 <th>SKU</th>
                 <th>Description</th>
                 <th>Units/Case</th>
-                <th>Permanent?</th>
-                <th>Cur Case</th>
-                <th>Cur Qty</th>
-                <th>+1 Case</th>
-                <th>+1 Qty</th>
-                <th>+2 Case</th>
-                <th>+2 Qty</th>
-                <th>+3 Case</th>
-                <th>+3 Qty</th>
+                <th>Permanent Price Increase?</th>
+
+                <th id="h_m0_case"></th>
+                <th id="h_m0_qty"></th>
+
+                <th id="h_m1_case"></th>
+                <th id="h_m1_qty"></th>
+
+                <th id="h_m2_case"></th>
+                <th id="h_m2_qty"></th>
+
+                <th id="h_m3_case"></th>
+                <th id="h_m3_qty"></th>
+
                 <th></th>
               </tr>
             </thead>
@@ -110,257 +115,135 @@
 
 <script src="app.js"></script>
 <script>
-  const state = { vendors: [], batch: [] };
 
-  function renderAuthState(){
-    const user = getUser();
-    const loggedIn = !!user && !!getToken();
+const state = { vendors: [], batch: [] };
 
-    $("authCard").classList.toggle("hidden", loggedIn);
-    $("appCard").classList.toggle("hidden", !loggedIn);
-    $("logoutBtn").classList.toggle("hidden", !loggedIn);
+function monthLabel(d) {
+  return d.toLocaleString(undefined, { month: "short", year: "numeric" });
+}
 
-    $("repWho").textContent = loggedIn ? `${user.username} (${user.repId})` : "";
+function setBatchMonthHeaders() {
+  const now = new Date();
+  const dates = [
+    new Date(now.getFullYear(), now.getMonth(), 1),
+    new Date(now.getFullYear(), now.getMonth()+1, 1),
+    new Date(now.getFullYear(), now.getMonth()+2, 1),
+    new Date(now.getFullYear(), now.getMonth()+3, 1)
+  ];
+
+  const labels = dates.map(monthLabel);
+
+  document.getElementById("h_m0_case").textContent = `${labels[0]} Case Deal`;
+  document.getElementById("h_m0_qty").textContent  = `${labels[0]} Case Qty`;
+
+  document.getElementById("h_m1_case").textContent = `${labels[1]} Case Deal`;
+  document.getElementById("h_m1_qty").textContent  = `${labels[1]} Case Qty`;
+
+  document.getElementById("h_m2_case").textContent = `${labels[2]} Case Deal`;
+  document.getElementById("h_m2_qty").textContent  = `${labels[2]} Case Qty`;
+
+  document.getElementById("h_m3_case").textContent = `${labels[3]} Case Deal`;
+  document.getElementById("h_m3_qty").textContent  = `${labels[3]} Case Qty`;
+}
+
+function vendorUI(){
+  const val = $("vendorSelect").value;
+  $("vendorOtherWrap").classList.toggle("hidden", val !== "__OTHER__");
+}
+
+async function loadVendors(){
+  const sel = $("vendorSelect");
+  sel.innerHTML = "<option value=''>Loading...</option>";
+
+  try {
+    const data = await apiPost("/vendors/list", {}, false);
+    state.vendors = data.vendors || [];
+  } catch {
+    state.vendors = [];
   }
 
-  async function loadVendors(){
-    const sel = $("vendorSelect");
-    // show loading state immediately
-    sel.innerHTML = "";
-    const loading = document.createElement("option");
-    loading.value = "";
-    loading.textContent = "Loading vendors...";
-    sel.appendChild(loading);
+  sel.innerHTML = "<option value=''>Select your vendor...</option>";
 
-    try {
-      const data = await apiPost("/vendors/list", {}, false);
-      state.vendors = data.vendors || [];
-    } catch (e) {
-      state.vendors = [];
+  state.vendors.forEach(v => {
+    const o = document.createElement("option");
+    o.value = v.vendorId;
+    o.textContent = v.vendorName;
+    sel.appendChild(o);
+  });
+
+  const other = document.createElement("option");
+  other.value = "__OTHER__";
+  other.textContent = "Other (add new)";
+  sel.appendChild(other);
+}
+
+function renderAuthState(){
+  const user = getUser();
+  const loggedIn = !!user && !!getToken();
+  $("authCard").classList.toggle("hidden", loggedIn);
+  $("appCard").classList.toggle("hidden", !loggedIn);
+  $("logoutBtn").classList.toggle("hidden", !loggedIn);
+  $("repWho").textContent = loggedIn ? `${user.username}` : "";
+}
+
+async function doSignup(){
+  try {
+    const vSel = $("vendorSelect").value;
+    const payload = {
+      firstName: $("firstName").value.trim(),
+      lastName: $("lastName").value.trim(),
+      phone: $("phone").value.trim(),
+      pin: $("pin").value.trim()
+    };
+
+    if (vSel === "__OTHER__") {
+      payload.vendorName = $("vendorOther").value.trim();
+      if (!payload.vendorName) return alert("Please type your vendor.");
+    } else {
+      payload.vendorId = vSel;
+      if (!payload.vendorId) return alert("Please select your vendor.");
     }
 
-    sel.innerHTML = "";
-
-    const opt0 = document.createElement("option");
-    opt0.value = "";
-    opt0.textContent = "Select your vendor...";
-    sel.appendChild(opt0);
-
-    for (const v of state.vendors) {
-      const o = document.createElement("option");
-      o.value = v.vendorId;
-      o.textContent = v.vendorName;
-      sel.appendChild(o);
-    }
-
-    const other = document.createElement("option");
-    other.value = "__OTHER__";
-    other.textContent = "Other (add new)";
-    sel.appendChild(other);
-
-    vendorUI();
-  }
-
-  function vendorUI(){
-    const val = $("vendorSelect").value;
-    const isOther = (val === "__OTHER__");
-    $("vendorOtherWrap").classList.toggle("hidden", !isOther);
-    if (!isOther) $("vendorOther").value = "";
-  }
-
-  function addToBatch(item){
-    if (state.batch.some(x => x.productId === item.productId)) return;
-    state.batch.push({
-      productId: item.productId,
-      productDescription: item.productDescription,
-      unitsPerCase: "",
-      permanentIncrease: false,
-      cur_unitCaseCost: "",
-      cur_qtyCaseDeal: "",
-      m1_unitCaseCost: "",
-      m1_qtyCaseDeal: "",
-      m2_unitCaseCost: "",
-      m2_qtyCaseDeal: "",
-      m3_unitCaseCost: "",
-      m3_qtyCaseDeal: ""
-    });
-    renderBatch();
-  }
-
-  function renderBatch(){
-    const tb = $("batchBody");
-    tb.innerHTML = "";
-    state.batch.forEach((ln, idx) => {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td class="mono">${ln.productId}</td>
-        <td>${ln.productDescription}</td>
-        <td><input value="${ln.unitsPerCase}" data-k="unitsPerCase" data-i="${idx}" style="min-width:120px"></td>
-        <td><input type="checkbox" ${ln.permanentIncrease ? "checked":""} data-k="permanentIncrease" data-i="${idx}"></td>
-        <td><input value="${ln.cur_unitCaseCost}" data-k="cur_unitCaseCost" data-i="${idx}" style="min-width:120px"></td>
-        <td><input value="${ln.cur_qtyCaseDeal}" data-k="cur_qtyCaseDeal" data-i="${idx}" style="min-width:110px"></td>
-        <td><input value="${ln.m1_unitCaseCost}" data-k="m1_unitCaseCost" data-i="${idx}" style="min-width:120px"></td>
-        <td><input value="${ln.m1_qtyCaseDeal}" data-k="m1_qtyCaseDeal" data-i="${idx}" style="min-width:110px"></td>
-        <td><input value="${ln.m2_unitCaseCost}" data-k="m2_unitCaseCost" data-i="${idx}" style="min-width:120px"></td>
-        <td><input value="${ln.m2_qtyCaseDeal}" data-k="m2_qtyCaseDeal" data-i="${idx}" style="min-width:110px"></td>
-        <td><input value="${ln.m3_unitCaseCost}" data-k="m3_unitCaseCost" data-i="${idx}" style="min-width:120px"></td>
-        <td><input value="${ln.m3_qtyCaseDeal}" data-k="m3_qtyCaseDeal" data-i="${idx}" style="min-width:110px"></td>
-        <td><button class="danger" data-del="${idx}">Remove</button></td>
-      `;
-      tb.appendChild(tr);
-    });
-  }
-
-  function wireBatchHandlers(){
-    $("batchBody").addEventListener("input", (e) => {
-      const t = e.target;
-      const i = Number(t.dataset.i);
-      const k = t.dataset.k;
-      if (!Number.isInteger(i) || !k) return;
-      state.batch[i][k] = t.value;
-    });
-    $("batchBody").addEventListener("change", (e) => {
-      const t = e.target;
-      const i = Number(t.dataset.i);
-      const k = t.dataset.k;
-      if (!Number.isInteger(i) || !k) return;
-      if (t.type === "checkbox") state.batch[i][k] = t.checked;
-    });
-    $("batchBody").addEventListener("click", (e) => {
-      const btn = e.target.closest("button[data-del]");
-      if (!btn) return;
-      const i = Number(btn.dataset.del);
-      state.batch.splice(i, 1);
-      renderBatch();
-    });
-  }
-
-  async function searchInventory(){
-    const q = $("searchQ").value.trim();
-    if (!q) return;
-    $("searchStatus").innerHTML = "<small>Searching...</small>";
-    try {
-      const data = await apiPost("/inventory/search", { q }, true);
-      const items = data.items || [];
-      const div = $("searchResults");
-      div.innerHTML = "";
-      if (!items.length) {
-        div.innerHTML = "<small>No matches.</small>";
-      } else {
-        items.forEach(it => {
-          const row = document.createElement("div");
-          row.className = "card";
-          row.style.padding = "10px";
-          row.style.marginBottom = "8px";
-          row.innerHTML = `
-            <div class="flex">
-              <div class="mono">${it.productId}</div>
-              <div style="flex:1">${it.productDescription}</div>
-              <button class="primary">Add</button>
-            </div>`;
-          row.querySelector("button").onclick = () => addToBatch(it);
-          div.appendChild(row);
-        });
-      }
-      $("searchStatus").innerHTML = `<small>${items.length} result(s)</small>`;
-    } catch (err) {
-      $("searchStatus").innerHTML = `<small class="badge bad">${err.message}</small>`;
-    }
-  }
-
-  async function doSignup(){
-    try {
-      const firstName = $("firstName").value.trim();
-      const lastName  = $("lastName").value.trim();
-      const phone     = $("phone").value.trim();
-      const pin       = $("pin").value.trim();
-
-      const vSel = $("vendorSelect").value;
-      let payload = { firstName, lastName, phone, pin };
-
-      if (vSel === "__OTHER__") {
-        payload.vendorName = $("vendorOther").value.trim();
-        if (!payload.vendorName) return alert("Please type your vendor name.");
-      } else {
-        payload.vendorId = vSel;
-        if (!payload.vendorId) return alert("Please select your vendor.");
-      }
-
-      const res = await apiPost("/rep/signup", payload, false);
-      saveUser(res.user);
-      saveToken(res.token);
-
-      alert(`Account created!\nYour username is: ${res.user.username}`);
-      renderAuthState();
-    } catch (e) {
-      alert(e.message);
-    }
-  }
-
-  async function doLogin(){
-    try {
-      const username = normalizeUsername($("loginUsername").value.trim());
-      const pin = $("loginPin").value.trim();
-      const res = await apiPost("/auth/login", { username, pin }, false);
-      saveUser(res.user);
-      saveToken(res.token);
-      renderAuthState();
-    } catch (e) {
-      alert(e.message);
-    }
-  }
-
-  async function submitBatch(){
-    if (!state.batch.length) return alert("Add at least one item.");
-    for (const ln of state.batch) {
-      if (!ln.unitsPerCase || Number(ln.unitsPerCase) <= 0) return alert(`Units/Case required for SKU ${ln.productId}`);
-    }
-    $("batchMsg").textContent = "Submitting...";
-    try {
-      const lines = state.batch.map(ln => ({
-        ...ln,
-        unitsPerCase: Number(ln.unitsPerCase),
-        cur_unitCaseCost: Number(ln.cur_unitCaseCost || 0),
-        cur_qtyCaseDeal: Number(ln.cur_qtyCaseDeal || 0),
-        m1_unitCaseCost: Number(ln.m1_unitCaseCost || 0),
-        m1_qtyCaseDeal: Number(ln.m1_qtyCaseDeal || 0),
-        m2_unitCaseCost: Number(ln.m2_unitCaseCost || 0),
-        m2_qtyCaseDeal: Number(ln.m2_qtyCaseDeal || 0),
-        m3_unitCaseCost: Number(ln.m3_unitCaseCost || 0),
-        m3_qtyCaseDeal: Number(ln.m3_qtyCaseDeal || 0),
-        permanentIncrease: !!ln.permanentIncrease
-      }));
-      const res = await apiPost("/rep/batch/submit", { lines }, true);
-      $("batchMsg").textContent = `Submitted batch ${res.batchId} (${res.lineCount} lines)`;
-      state.batch = [];
-      renderBatch();
-    } catch (e) {
-      $("batchMsg").textContent = e.message;
-    }
-  }
-
-  function logout(){
-    clearToken();
-    state.batch = [];
-    renderBatch();
+    const res = await apiPost("/rep/signup", payload, false);
+    saveUser(res.user);
+    saveToken(res.token);
+    alert(`Account created! Username: ${res.user.username}`);
     renderAuthState();
+  } catch(e){
+    alert(e.message);
   }
+}
 
+async function doLogin(){
+  try {
+    const res = await apiPost("/auth/login", {
+      username: $("loginUsername").value.trim(),
+      pin: $("loginPin").value.trim()
+    }, false);
+    saveUser(res.user);
+    saveToken(res.token);
+    renderAuthState();
+  } catch(e){
+    alert(e.message);
+  }
+}
+
+function logout(){
+  clearToken();
+  state.batch = [];
+  renderBatch();
   renderAuthState();
-  loadVendors();
-  $("vendorSelect").addEventListener("change", vendorUI);
+}
 
-  $("signupBtn").onclick = doSignup;
-  $("loginBtn").onclick = doLogin;
-  $("logoutBtn").onclick = logout;
+$("signupBtn").onclick = doSignup;
+$("loginBtn").onclick = doLogin;
+$("logoutBtn").onclick = logout;
+$("vendorSelect").addEventListener("change", vendorUI);
 
-  $("searchBtn").onclick = searchInventory;
-  $("searchQ").addEventListener("keydown", (e) => { if (e.key === "Enter") searchInventory(); });
+setBatchMonthHeaders();
+loadVendors();
+renderAuthState();
 
-  $("submitBatchBtn").onclick = submitBatch;
-  $("clearBatchBtn").onclick = () => { state.batch = []; renderBatch(); };
-
-  wireBatchHandlers();
 </script>
 </body>
 </html>
