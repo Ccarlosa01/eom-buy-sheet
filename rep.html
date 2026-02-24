@@ -40,7 +40,7 @@
             <input id="phone" placeholder="Cell phone" />
           </div>
 
-          <!-- ✅ Vendor selection -->
+          <!-- Vendor selection -->
           <div style="margin-top:10px">
             <label for="vendorSelect"><small><b>Vendor</b> (select your company)</small></label>
             <select id="vendorSelect" style="width:100%; margin-top:6px;"></select>
@@ -68,11 +68,23 @@
 
       <div class="card">
         <h2>Add items</h2>
-        <div class="flex">
-          <input id="searchQ" placeholder="Search by description..." style="min-width:320px" />
-          <button id="searchBtn">Search</button>
-          <span id="searchStatus"><small></small></span>
+
+        <!-- Autocomplete search -->
+        <div style="position:relative;max-width:820px">
+          <div class="flex" style="align-items:flex-start">
+            <input id="searchQ" placeholder="Search by description..." style="min-width:320px;flex:1" autocomplete="off" />
+            <button id="searchBtn">Search</button>
+            <span id="searchStatus"><small></small></span>
+          </div>
+
+          <div id="searchDropdown" class="hidden"
+               style="position:absolute;left:0;right:0;top:44px;z-index:50;
+                      background:#fff;border:1px solid #ddd;border-radius:10px;
+                      box-shadow:0 10px 24px rgba(0,0,0,.12);max-height:320px;overflow:auto;">
+          </div>
         </div>
+
+        <!-- (kept for compatibility; not used) -->
         <div id="searchResults" style="margin-top:10px"></div>
       </div>
 
@@ -122,8 +134,9 @@
 
   /* -------- Month headers -------- */
   function monthLabel(d) {
-    return d.toLocaleString(undefined, { month: "short", year: "numeric" });
+    return d.toLocaleString(undefined, { month: "short", year: "numeric" }); // e.g., "Feb 2026"
   }
+
   function setBatchMonthHeaders() {
     const now = new Date();
     const m0 = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -207,16 +220,22 @@
     clearToken();
     state.batch = [];
     renderBatch();
+
     $("batchMsg").textContent = "";
-    $("searchResults").innerHTML = "";
-    $("searchStatus").innerHTML = "<small></small>";
     $("searchQ").value = "";
+    $("searchStatus").innerHTML = "<small></small>";
+    closeDropdown();
+
     renderAuthState();
   }
 
   /* -------- Batch UI -------- */
+  function isInBatch(productId){
+    return state.batch.some(x => x.productId === productId);
+  }
+
   function addToBatch(item){
-    if (state.batch.some(x => x.productId === item.productId)) return;
+    if (isInBatch(item.productId)) return;
     state.batch.push({
       productId: item.productId,
       productDescription: item.productDescription,
@@ -294,86 +313,198 @@
       const i = Number(btn.dataset.del);
       state.batch.splice(i, 1);
       renderBatch();
+
+      // If dropdown is open, re-render so "Already in batch" updates
+      if (ac.open) renderDropdown(ac.items);
     });
   }
 
-  /* -------- Dynamic search -------- */
+  /* -------- Autocomplete dropdown (Google-like) -------- */
   let searchTimer = null;
   let searchAbort = null;
 
-  function debounceSearch(fn, delay = 250) {
+  const ac = {
+    items: [],
+    activeIndex: -1,
+    open: false
+  };
+
+  function debounce(fn, delay = 200) {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(fn, delay);
   }
 
-  async function searchInventory(dynamic = false){
-    const q = $("searchQ").value.trim();
+  function openDropdown() {
+    $("searchDropdown").classList.remove("hidden");
+    ac.open = true;
+  }
 
-    if (q.length < 2) {
-      $("searchStatus").innerHTML = dynamic ? "<small>Type 2+ characters…</small>" : "<small></small>";
-      $("searchResults").innerHTML = "";
+  function closeDropdown() {
+    $("searchDropdown").classList.add("hidden");
+    $("searchDropdown").innerHTML = "";
+    ac.open = false;
+    ac.items = [];
+    ac.activeIndex = -1;
+  }
+
+  function setActive(index) {
+    ac.activeIndex = index;
+    const nodes = $("searchDropdown").querySelectorAll("[data-ac-index]");
+    nodes.forEach(n => n.classList.remove("ac-active"));
+    const active = $("searchDropdown").querySelector(`[data-ac-index="${index}"]`);
+    if (active) {
+      active.classList.add("ac-active");
+      active.scrollIntoView({ block: "nearest" });
+    }
+  }
+
+  function addFromAutocomplete(item) {
+    if (!item) return;
+
+    if (isInBatch(item.productId)) {
+      $("searchStatus").innerHTML = "<small>Already in batch.</small>";
       return;
     }
 
+    addToBatch(item);
+
+    // Optional UX: clear and close after add
+    $("searchQ").value = "";
+    $("searchStatus").innerHTML = "<small>Added.</small>";
+    closeDropdown();
+    $("searchQ").focus();
+  }
+
+  function ensureAutocompleteStyle() {
+    if (document.getElementById("acStyle")) return;
+
+    const s = document.createElement("style");
+    s.id = "acStyle";
+    s.textContent = `
+      .ac-row{padding:10px 12px;cursor:pointer;display:flex;gap:10px;align-items:flex-start}
+      .ac-row:hover{background:rgba(0,0,0,.06)}
+      .ac-active{background:rgba(0,0,0,.10)}
+      .ac-sku{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace; min-width:90px}
+      .ac-desc{flex:1}
+      .ac-badge{font-size:12px;padding:2px 8px;border-radius:999px;border:1px solid #ddd;opacity:.85;white-space:nowrap}
+      .ac-disabled{opacity:.55;cursor:not-allowed}
+    `;
+    document.head.appendChild(s);
+  }
+
+  function renderDropdown(items) {
+    ensureAutocompleteStyle();
+
+    const dd = $("searchDropdown");
+    dd.innerHTML = "";
+
+    if (!items.length) {
+      dd.innerHTML = `<div style="padding:10px"><small>No matches.</small></div>`;
+      openDropdown();
+      ac.items = [];
+      ac.activeIndex = -1;
+      return;
+    }
+
+    items.forEach((it, idx) => {
+      const inBatch = isInBatch(it.productId);
+
+      const row = document.createElement("div");
+      row.className = "ac-row" + (inBatch ? " ac-disabled" : "");
+      row.setAttribute("data-ac-index", String(idx));
+
+      row.innerHTML = `
+        <div class="ac-sku">${it.productId}</div>
+        <div class="ac-desc">${it.productDescription}</div>
+        ${
+          inBatch
+            ? `<div class="ac-badge">Already in batch</div>`
+            : `<div class="ac-badge">↵ Add</div>`
+        }
+      `;
+
+      row.addEventListener("mouseenter", () => setActive(idx));
+
+      row.addEventListener("mousedown", (e) => {
+        // mousedown so click works even if input loses focus
+        e.preventDefault();
+        if (inBatch) {
+          $("searchStatus").innerHTML = "<small>Already in batch.</small>";
+          return;
+        }
+        addFromAutocomplete(it);
+      });
+
+      dd.appendChild(row);
+    });
+
+    ac.items = items;
+    openDropdown();
+
+    // Keep a sensible active row (prefer first non-disabled)
+    let firstPick = 0;
+    for (let i = 0; i < items.length; i++) {
+      if (!isInBatch(items[i].productId)) { firstPick = i; break; }
+    }
+    setActive(firstPick);
+  }
+
+  async function fetchInventoryMatches(q) {
     if (searchAbort) searchAbort.abort();
     searchAbort = new AbortController();
+
+    const headers = { "Content-Type": "application/json" };
+    const t = getToken();
+    if (t) headers["Authorization"] = "Bearer " + t;
+
+    const res = await fetch(API_BASE + "/inventory/search", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ q }),
+      signal: searchAbort.signal
+    });
+
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || "Search failed");
+    return data.items || [];
+  }
+
+  async function autocompleteSearch() {
+    const q = $("searchQ").value.trim();
+
+    if (q.length < 2) {
+      $("searchStatus").innerHTML = "<small>Type 2+ characters…</small>";
+      closeDropdown();
+      return;
+    }
 
     $("searchStatus").innerHTML = "<small>Searching…</small>";
 
     try {
-      const headers = { "Content-Type": "application/json" };
-      const t = getToken();
-      if (t) headers["Authorization"] = "Bearer " + t;
-
-      const res = await fetch(API_BASE + "/inventory/search", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ q }),
-        signal: searchAbort.signal
-      });
-
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error || "Search failed");
-
-      const items = data.items || [];
-      const div = $("searchResults");
-      div.innerHTML = "";
-
-      if (!items.length) {
-        div.innerHTML = "<small>No matches.</small>";
-        $("searchStatus").innerHTML = "<small>0 result(s)</small>";
-        return;
-      }
-
-      items.forEach(it => {
-        const row = document.createElement("div");
-        row.className = "card";
-        row.style.padding = "10px";
-        row.style.marginBottom = "8px";
-        row.innerHTML = `
-          <div class="flex">
-            <div class="mono">${it.productId}</div>
-            <div style="flex:1">${it.productDescription}</div>
-            <button class="primary">Add</button>
-          </div>`;
-
-        // ✅ Optional UX: clear results after adding
-        row.querySelector("button").onclick = () => {
-          addToBatch(it);
-          $("searchResults").innerHTML = "";
-          $("searchStatus").innerHTML = "<small>Added.</small>";
-          $("searchQ").value = "";
-          $("searchQ").focus();
-        };
-
-        div.appendChild(row);
-      });
-
+      const items = await fetchInventoryMatches(q);
       $("searchStatus").innerHTML = `<small>${items.length} result(s)</small>`;
+      renderDropdown(items);
     } catch (err) {
       if (err.name === "AbortError") return;
       $("searchStatus").innerHTML = `<small class="badge bad">${err.message}</small>`;
+      closeDropdown();
     }
+  }
+
+  function moveActive(delta) {
+    if (!ac.open || !ac.items.length) return;
+
+    let idx = ac.activeIndex;
+    for (let step = 0; step < ac.items.length; step++) {
+      idx = Math.max(0, Math.min(ac.items.length - 1, idx + delta));
+      // stop on any row (even disabled) so user can see it,
+      // but we prefer skipping disabled if possible:
+      if (!isInBatch(ac.items[idx].productId)) break;
+
+      // if we hit the ends, break
+      if ((delta > 0 && idx === ac.items.length - 1) || (delta < 0 && idx === 0)) break;
+    }
+    setActive(idx);
   }
 
   /* -------- Auto-load latest submitted batch on login -------- */
@@ -492,6 +623,9 @@
 
       state.batch = [];
       renderBatch();
+      closeDropdown();
+      $("searchQ").value = "";
+      $("searchStatus").innerHTML = "<small></small>";
     } catch (e) {
       $("batchMsg").textContent = e.message;
     }
@@ -509,25 +643,73 @@
   $("logoutBtn").onclick = logout;
 
   $("submitBatchBtn").onclick = submitBatch;
-  $("clearBatchBtn").onclick = () => { state.batch = []; renderBatch(); $("batchMsg").textContent = ""; };
+  $("clearBatchBtn").onclick = () => {
+    state.batch = [];
+    renderBatch();
+    $("batchMsg").textContent = "";
+    if (ac.open) renderDropdown(ac.items);
+  };
 
   wireBatchHandlers();
 
-  // Button search still works
-  $("searchBtn").onclick = () => searchInventory(false);
+  // Search button: immediate search
+  $("searchBtn").onclick = () => {
+    clearTimeout(searchTimer);
+    autocompleteSearch();
+  };
 
-  // ✅ Dynamic search as you type
+  // Search-as-you-type
   $("searchQ").addEventListener("input", () => {
-    debounceSearch(() => searchInventory(true), 250);
+    debounce(() => autocompleteSearch(), 200);
   });
 
-  // Enter forces immediate search
+  // Keyboard navigation
   $("searchQ").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      clearTimeout(searchTimer);
-      searchInventory(false);
+    if (!ac.open) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        clearTimeout(searchTimer);
+        autocompleteSearch();
+      }
+      return;
     }
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      moveActive(+1);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      moveActive(-1);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const item = ac.items[ac.activeIndex];
+      if (!item) return;
+
+      if (isInBatch(item.productId)) {
+        $("searchStatus").innerHTML = "<small>Already in batch.</small>";
+        return;
+      }
+      addFromAutocomplete(item);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      closeDropdown();
+    }
+  });
+
+  // Close dropdown when clicking outside
+  document.addEventListener("mousedown", (e) => {
+    if (!ac.open) return;
+    const dd = $("searchDropdown");
+    const q = $("searchQ");
+    if (dd.contains(e.target) || q.contains(e.target)) return;
+    closeDropdown();
+  });
+
+  // Close on blur (delay so mousedown on item still works)
+  $("searchQ").addEventListener("blur", () => {
+    setTimeout(() => {
+      if (!document.activeElement || document.activeElement.id !== "searchQ") closeDropdown();
+    }, 120);
   });
 
   // If already logged in (token stored), auto-load latest batch
