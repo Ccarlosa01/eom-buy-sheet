@@ -334,7 +334,13 @@
 
         rows.forEach(o => {
           const repName =
-            o.repName || o.repUsername || o.username || o.rep || "";
+            o.repName ||
+            o.repUsername ||
+            o.username ||
+            o.createdByUsername ||
+            o.repUser ||
+            o.rep ||
+            o.repId || "";
 
           const tr = document.createElement("tr");
           tr.innerHTML = `
