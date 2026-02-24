@@ -122,9 +122,8 @@
 
   /* -------- Month headers -------- */
   function monthLabel(d) {
-    return d.toLocaleString(undefined, { month: "short", year: "numeric" }); // e.g., "Feb 2026"
+    return d.toLocaleString(undefined, { month: "short", year: "numeric" });
   }
-
   function setBatchMonthHeaders() {
     const now = new Date();
     const m0 = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -140,13 +139,10 @@
 
     set("h_m0_case", `${labels[0]} Case Deal`);
     set("h_m0_qty",  `${labels[0]} Case Qty`);
-
     set("h_m1_case", `${labels[1]} Case Deal`);
     set("h_m1_qty",  `${labels[1]} Case Qty`);
-
     set("h_m2_case", `${labels[2]} Case Deal`);
     set("h_m2_qty",  `${labels[2]} Case Qty`);
-
     set("h_m3_case", `${labels[3]} Case Deal`);
     set("h_m3_qty",  `${labels[3]} Case Qty`);
   }
@@ -170,7 +166,7 @@
     try {
       const data = await apiPost("/vendors/list", {}, false);
       state.vendors = data.vendors || [];
-    } catch (e) {
+    } catch {
       state.vendors = [];
     }
 
@@ -211,6 +207,10 @@
     clearToken();
     state.batch = [];
     renderBatch();
+    $("batchMsg").textContent = "";
+    $("searchResults").innerHTML = "";
+    $("searchStatus").innerHTML = "<small></small>";
+    $("searchQ").value = "";
     renderAuthState();
   }
 
@@ -297,39 +297,81 @@
     });
   }
 
-  /* -------- Search inventory -------- */
-  async function searchInventory(){
-    const q = $("searchQ").value.trim();
-    if (!q) return;
+  /* -------- Dynamic search -------- */
+  let searchTimer = null;
+  let searchAbort = null;
 
-    $("searchStatus").innerHTML = "<small>Searching...</small>";
+  function debounceSearch(fn, delay = 250) {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(fn, delay);
+  }
+
+  async function searchInventory(dynamic = false){
+    const q = $("searchQ").value.trim();
+
+    if (q.length < 2) {
+      $("searchStatus").innerHTML = dynamic ? "<small>Type 2+ characters…</small>" : "<small></small>";
+      $("searchResults").innerHTML = "";
+      return;
+    }
+
+    if (searchAbort) searchAbort.abort();
+    searchAbort = new AbortController();
+
+    $("searchStatus").innerHTML = "<small>Searching…</small>";
+
     try {
-      const data = await apiPost("/inventory/search", { q }, true);
+      const headers = { "Content-Type": "application/json" };
+      const t = getToken();
+      if (t) headers["Authorization"] = "Bearer " + t;
+
+      const res = await fetch(API_BASE + "/inventory/search", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ q }),
+        signal: searchAbort.signal
+      });
+
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || "Search failed");
+
       const items = data.items || [];
       const div = $("searchResults");
       div.innerHTML = "";
 
       if (!items.length) {
         div.innerHTML = "<small>No matches.</small>";
-      } else {
-        items.forEach(it => {
-          const row = document.createElement("div");
-          row.className = "card";
-          row.style.padding = "10px";
-          row.style.marginBottom = "8px";
-          row.innerHTML = `
-            <div class="flex">
-              <div class="mono">${it.productId}</div>
-              <div style="flex:1">${it.productDescription}</div>
-              <button class="primary">Add</button>
-            </div>`;
-          row.querySelector("button").onclick = () => addToBatch(it);
-          div.appendChild(row);
-        });
+        $("searchStatus").innerHTML = "<small>0 result(s)</small>";
+        return;
       }
+
+      items.forEach(it => {
+        const row = document.createElement("div");
+        row.className = "card";
+        row.style.padding = "10px";
+        row.style.marginBottom = "8px";
+        row.innerHTML = `
+          <div class="flex">
+            <div class="mono">${it.productId}</div>
+            <div style="flex:1">${it.productDescription}</div>
+            <button class="primary">Add</button>
+          </div>`;
+
+        // ✅ Optional UX: clear results after adding
+        row.querySelector("button").onclick = () => {
+          addToBatch(it);
+          $("searchResults").innerHTML = "";
+          $("searchStatus").innerHTML = "<small>Added.</small>";
+          $("searchQ").value = "";
+          $("searchQ").focus();
+        };
+
+        div.appendChild(row);
+      });
 
       $("searchStatus").innerHTML = `<small>${items.length} result(s)</small>`;
     } catch (err) {
+      if (err.name === "AbortError") return;
       $("searchStatus").innerHTML = `<small class="badge bad">${err.message}</small>`;
     }
   }
@@ -362,7 +404,6 @@
       renderBatch();
       $("batchMsg").textContent = `Loaded last submitted batch (${res.batchId})`;
     } catch (e) {
-      // Non-blocking; rep can still work
       console.warn("Could not load latest batch:", e.message);
     }
   }
@@ -393,7 +434,7 @@
       alert(`Account created!\nYour username is: ${res.user.username}`);
       renderAuthState();
 
-      await loadLatestBatchIntoTable(); // ✅ autopopulate if they already had one (usually none on first signup)
+      await loadLatestBatchIntoTable();
     } catch (e) {
       alert(e.message);
     }
@@ -409,7 +450,7 @@
       saveToken(res.token);
 
       renderAuthState();
-      await loadLatestBatchIntoTable(); // ✅ autopopulate latest batch
+      await loadLatestBatchIntoTable();
     } catch (e) {
       alert(e.message);
     }
@@ -449,7 +490,6 @@
       const res = await apiPost("/rep/batch/submit", { lines }, true);
       $("batchMsg").textContent = `Submitted batch ${res.batchId} (${res.lineCount} lines)`;
 
-      // Keep the latest as what they just submitted (clear screen but next login will reload)
       state.batch = [];
       renderBatch();
     } catch (e) {
@@ -460,7 +500,7 @@
   /* -------- Init -------- */
   setBatchMonthHeaders();
   renderAuthState();
-  loadVendors().then(() => vendorUI());
+  loadVendors();
 
   $("vendorSelect").addEventListener("change", vendorUI);
 
@@ -468,15 +508,29 @@
   $("loginBtn").onclick = doLogin;
   $("logoutBtn").onclick = logout;
 
-  $("searchBtn").onclick = searchInventory;
-  $("searchQ").addEventListener("keydown", (e) => { if (e.key === "Enter") searchInventory(); });
-
   $("submitBatchBtn").onclick = submitBatch;
   $("clearBatchBtn").onclick = () => { state.batch = []; renderBatch(); $("batchMsg").textContent = ""; };
 
   wireBatchHandlers();
 
-  // If already logged in (token stored), auto-load latest batch immediately
+  // Button search still works
+  $("searchBtn").onclick = () => searchInventory(false);
+
+  // ✅ Dynamic search as you type
+  $("searchQ").addEventListener("input", () => {
+    debounceSearch(() => searchInventory(true), 250);
+  });
+
+  // Enter forces immediate search
+  $("searchQ").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      clearTimeout(searchTimer);
+      searchInventory(false);
+    }
+  });
+
+  // If already logged in (token stored), auto-load latest batch
   if (getUser()?.role === "REP" && getToken()) {
     loadLatestBatchIntoTable();
   }
