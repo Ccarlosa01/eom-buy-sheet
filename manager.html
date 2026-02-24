@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Manager Portal</title>
   <link rel="stylesheet" href="styles.css" />
-  <!-- SheetJS for reading .xlsx/.xls in browser -->
+
+  <!-- ✅ REQUIRED: SheetJS must load BEFORE our scripts use XLSX -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.19.3/dist/xlsx.full.min.js"></script>
 </head>
 <body>
@@ -39,7 +40,10 @@
           <button class="primary" id="uploadBtn">Upload to Sheet</button>
           <span id="uploadMsg"><small></small></span>
         </div>
-        <small>We only import: <span class="mono">Item No.</span> and <span class="mono">Description</span>. Supports <b>.xlsx</b> and <b>.xls</b>.</small>
+        <small>
+          We only import: <span class="mono">Item No.</span> and <span class="mono">Description</span>.
+          Supports <b>.xlsx</b> and <b>.xls</b>.
+        </small>
       </div>
 
       <div class="row" style="margin-top:14px">
@@ -91,220 +95,228 @@
     </div>
   </div>
 
-<script src="app.js"></script>
-<script>
-  function renderAuthState(){
-    const user = getUser();
-    const loggedIn = !!user && !!getToken() && user.role === "MANAGER";
-    $("authCard").classList.toggle("hidden", loggedIn);
-    $("appCard").classList.toggle("hidden", !loggedIn);
-    $("logoutBtn").classList.toggle("hidden", !loggedIn);
-    $("mgrWho").textContent = loggedIn ? `${user.username} (MANAGER)` : "";
-  }
+  <!-- ✅ app.js must load AFTER SheetJS so our inline script can use helper funcs + XLSX -->
+  <script src="app.js"></script>
 
-  async function doLogin(){
-    try {
-      const username = normalizeUsername($("username").value.trim());
-      const pin = $("pin").value.trim();
-      const res = await apiPost("/auth/login", { username, pin }, false);
-      if (res.user.role !== "MANAGER") throw new Error("Not a manager account.");
-      saveUser(res.user);
-      saveToken(res.token);
+  <script>
+    function renderAuthState(){
+      const user = getUser();
+      const loggedIn = !!user && !!getToken() && user.role === "MANAGER";
+      $("authCard").classList.toggle("hidden", loggedIn);
+      $("appCard").classList.toggle("hidden", !loggedIn);
+      $("logoutBtn").classList.toggle("hidden", !loggedIn);
+      $("mgrWho").textContent = loggedIn ? `${user.username} (MANAGER)` : "";
+    }
+
+    async function doLogin(){
+      try {
+        const username = normalizeUsername($("username").value.trim());
+        const pin = $("pin").value.trim();
+        const res = await apiPost("/auth/login", { username, pin }, false);
+        if (res.user.role !== "MANAGER") throw new Error("Not a manager account.");
+        saveUser(res.user);
+        saveToken(res.token);
+        renderAuthState();
+        await refreshAll();
+      } catch (e) {
+        alert(e.message);
+      }
+    }
+
+    function logout(){
+      clearToken();
       renderAuthState();
-      await refreshAll();
-    } catch (e) {
-      alert(e.message);
-    }
-  }
-
-  function logout(){
-    clearToken();
-    renderAuthState();
-  }
-
-  // ✅ Improved upload: supports .xlsx and .xls, updates UI as it progresses
-  async function uploadInventory(){
-    const f = $("file").files[0];
-    if (!f) return alert("Choose an Excel file first.");
-
-    const fileName = f.name.toLowerCase();
-    if (!fileName.endsWith(".xlsx") && !fileName.endsWith(".xls")) {
-      return alert("Please upload an Excel file (.xlsx or .xls).");
     }
 
-    // Update UI and allow repaint before heavy parsing
-    $("uploadMsg").innerHTML = "<small>Reading file...</small>";
-    await new Promise(r => setTimeout(r, 0));
+    // ✅ Improved upload: supports .xlsx and many .xls files, with UI progress updates
+    async function uploadInventory(){
+      const f = $("file").files[0];
+      if (!f) return alert("Choose an Excel file first.");
 
-    try {
-      const buf = await f.arrayBuffer();
-
-      $("uploadMsg").innerHTML = "<small>Parsing Excel (this can take a moment)...</small>";
-      await new Promise(r => setTimeout(r, 0));
-
-      const wb = XLSX.read(buf, { type: "array" });
-
-      const firstSheetName = wb.SheetNames?.[0];
-      if (!firstSheetName) throw new Error("No worksheets found in this file.");
-
-      const ws = wb.Sheets[firstSheetName];
-      if (!ws) throw new Error("Worksheet could not be read.");
-
-      $("uploadMsg").innerHTML = "<small>Extracting Item No. + Description...</small>";
-      await new Promise(r => setTimeout(r, 0));
-
-      const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
-
-      const items = [];
-      const seen = new Set();
-
-      for (const r of rows) {
-        const productId = String(
-          r["Item No."] ?? r["Item No"] ?? r["ItemNo"] ?? r["Item #"] ?? ""
-        ).trim();
-
-        const productDescription = String(
-          r["Description"] ?? r["Desc"] ?? ""
-        ).trim();
-
-        if (!productId || !productDescription) continue;
-        if (seen.has(productId)) continue;
-
-        seen.add(productId);
-        items.push({ productId, productDescription });
+      const fileName = f.name.toLowerCase();
+      if (!fileName.endsWith(".xlsx") && !fileName.endsWith(".xls")) {
+        return alert("Please upload an Excel file (.xlsx or .xls).");
       }
 
-      if (!items.length) {
+      // Extra sanity check: SheetJS loaded
+      if (typeof XLSX === "undefined") {
         $("uploadMsg").innerHTML =
-          "<small class='badge bad'>No valid rows found. Confirm columns are named 'Item No.' and 'Description'.</small>";
+          "<small class='badge bad'>SheetJS failed to load (XLSX is undefined). Refresh the page and try again.</small>";
         return;
       }
 
-      $("uploadMsg").innerHTML = `<small>Uploading ${items.length} items...</small>`;
-      const res = await apiPost("/manager/inventory/upload", { items }, true);
+      $("uploadMsg").innerHTML = "<small>Reading file...</small>";
+      await new Promise(r => setTimeout(r, 0));
 
-      $("uploadMsg").innerHTML =
-        `<small class="badge ok">Uploaded ${res.count} items successfully</small>`;
+      try {
+        const buf = await f.arrayBuffer();
 
-    } catch (err) {
-      console.error("Inventory upload error:", err);
-      const msg = (err && err.message) ? err.message : String(err);
-      $("uploadMsg").innerHTML =
-        `<small class="badge bad">Error: ${msg}. If this is a legacy .xls, open it in Excel and “Save As” .xlsx, then retry.</small>`;
+        $("uploadMsg").innerHTML = "<small>Parsing Excel (this can take a moment)...</small>";
+        await new Promise(r => setTimeout(r, 0));
+
+        const wb = XLSX.read(buf, { type: "array" });
+
+        const firstSheetName = wb.SheetNames?.[0];
+        if (!firstSheetName) throw new Error("No worksheets found in this file.");
+
+        const ws = wb.Sheets[firstSheetName];
+        if (!ws) throw new Error("Worksheet could not be read.");
+
+        $("uploadMsg").innerHTML = "<small>Extracting Item No. + Description...</small>";
+        await new Promise(r => setTimeout(r, 0));
+
+        const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
+
+        const items = [];
+        const seen = new Set();
+
+        for (const r of rows) {
+          const productId = String(
+            r["Item No."] ?? r["Item No"] ?? r["ItemNo"] ?? r["Item #"] ?? ""
+          ).trim();
+
+          const productDescription = String(
+            r["Description"] ?? r["Desc"] ?? ""
+          ).trim();
+
+          if (!productId || !productDescription) continue;
+          if (seen.has(productId)) continue;
+
+          seen.add(productId);
+          items.push({ productId, productDescription });
+        }
+
+        if (!items.length) {
+          $("uploadMsg").innerHTML =
+            "<small class='badge bad'>No valid rows found. Confirm columns are named 'Item No.' and 'Description'.</small>";
+          return;
+        }
+
+        $("uploadMsg").innerHTML = `<small>Uploading ${items.length} items...</small>`;
+        const res = await apiPost("/manager/inventory/upload", { items }, true);
+
+        $("uploadMsg").innerHTML =
+          `<small class="badge ok">Uploaded ${res.count} items successfully</small>`;
+
+      } catch (err) {
+        console.error("Inventory upload error:", err);
+        const msg = (err && err.message) ? err.message : String(err);
+        $("uploadMsg").innerHTML =
+          `<small class="badge bad">Error: ${msg}. If this is a legacy .xls that won't parse in-browser, open it in Excel and “Save As” .xlsx, then retry.</small>`;
+      }
     }
-  }
 
-  async function refreshVendors(){
-    $("vendorsMsg").textContent = "Loading...";
-    try {
-      const res = await apiPost("/vendors/list", { all: true }, true);
-      const vendors = res.vendors || [];
-      const div = $("vendorsList");
-      div.innerHTML = "";
-      vendors.forEach(v => {
-        const row = document.createElement("div");
-        row.className = "card";
-        row.style.padding = "10px";
-        row.style.marginBottom = "8px";
-        const active = String(v.active).toUpperCase() === "TRUE";
-        row.innerHTML = `
-          <div class="flex">
-            <div class="mono">${v.vendorId}</div>
-            <div style="flex:1">${v.vendorName}</div>
-            <span class="badge ${active ? "ok":"bad"}">${active ? "Active":"Inactive"}</span>
-            <button>${active ? "Deactivate":"Activate"}</button>
-          </div>`;
-        row.querySelector("button").onclick = async () => {
-          await apiPost("/manager/vendor/toggle", { vendorId: v.vendorId, active: !active }, true);
-          refreshVendors();
-        };
-        div.appendChild(row);
-      });
-      $("vendorsMsg").textContent = `${vendors.length} vendors`;
-    } catch (e) {
-      $("vendorsMsg").textContent = e.message;
+    async function refreshVendors(){
+      $("vendorsMsg").textContent = "Loading...";
+      try {
+        const res = await apiPost("/vendors/list", { all: true }, true);
+        const vendors = res.vendors || [];
+        const div = $("vendorsList");
+        div.innerHTML = "";
+        vendors.forEach(v => {
+          const row = document.createElement("div");
+          row.className = "card";
+          row.style.padding = "10px";
+          row.style.marginBottom = "8px";
+          const active = String(v.active).toUpperCase() === "TRUE";
+          row.innerHTML = `
+            <div class="flex">
+              <div class="mono">${v.vendorId}</div>
+              <div style="flex:1">${v.vendorName}</div>
+              <span class="badge ${active ? "ok":"bad"}">${active ? "Active":"Inactive"}</span>
+              <button>${active ? "Deactivate":"Activate"}</button>
+            </div>`;
+          row.querySelector("button").onclick = async () => {
+            await apiPost("/manager/vendor/toggle", { vendorId: v.vendorId, active: !active }, true);
+            refreshVendors();
+          };
+          div.appendChild(row);
+        });
+        $("vendorsMsg").textContent = `${vendors.length} vendors`;
+      } catch (e) {
+        $("vendorsMsg").textContent = e.message;
+      }
     }
-  }
 
-  async function refreshReps(){
-    $("repsMsg").textContent = "Loading...";
-    try {
-      const res = await apiPost("/manager/reps/list", {}, true);
-      const reps = res.reps || [];
-      const div = $("repsList");
-      div.innerHTML = "";
-      reps.forEach(r => {
-        const row = document.createElement("div");
-        row.className = "card";
-        row.style.padding = "10px";
-        row.style.marginBottom = "8px";
-        const active = !!r.active;
-        row.innerHTML = `
-          <div class="flex">
-            <div class="mono">${r.repId}</div>
-            <div style="flex:1">
-              <div><b>${r.username}</b> — ${r.name}</div>
-              <small class="mono">${r.phone || ""} · ${r.vendorId || ""}</small>
-            </div>
-            <span class="badge ${active ? "ok":"bad"}">${active ? "Active":"Inactive"}</span>
-            <button>${active ? "Deactivate":"Activate"}</button>
-          </div>`;
-        row.querySelector("button").onclick = async () => {
-          await apiPost("/manager/rep/toggle", { repId: r.repId, active: !active }, true);
-          refreshReps();
-        };
-        div.appendChild(row);
-      });
-      $("repsMsg").textContent = `${reps.length} reps`;
-    } catch (e) {
-      $("repsMsg").textContent = e.message;
+    async function refreshReps(){
+      $("repsMsg").textContent = "Loading...";
+      try {
+        const res = await apiPost("/manager/reps/list", {}, true);
+        const reps = res.reps || [];
+        const div = $("repsList");
+        div.innerHTML = "";
+        reps.forEach(r => {
+          const row = document.createElement("div");
+          row.className = "card";
+          row.style.padding = "10px";
+          row.style.marginBottom = "8px";
+          const active = !!r.active;
+          row.innerHTML = `
+            <div class="flex">
+              <div class="mono">${r.repId}</div>
+              <div style="flex:1">
+                <div><b>${r.username}</b> — ${r.name}</div>
+                <small class="mono">${r.phone || ""} · ${r.vendorId || ""}</small>
+              </div>
+              <span class="badge ${active ? "ok":"bad"}">${active ? "Active":"Inactive"}</span>
+              <button>${active ? "Deactivate":"Activate"}</button>
+            </div>`;
+          row.querySelector("button").onclick = async () => {
+            await apiPost("/manager/rep/toggle", { repId: r.repId, active: !active }, true);
+            refreshReps();
+          };
+          div.appendChild(row);
+        });
+        $("repsMsg").textContent = `${reps.length} reps`;
+      } catch (e) {
+        $("repsMsg").textContent = e.message;
+      }
     }
-  }
 
-  async function refreshOffDeal(){
-    $("offMsg").textContent = "Loading...";
-    try {
-      const res = await apiPost("/manager/off-deal", {}, true);
-      const rows = res.rows || [];
-      const tb = $("offBody");
-      tb.innerHTML = "";
-      rows.forEach(o => {
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td class="mono">${o.batchId || ""}</td>
-          <td class="mono">${o.productId || ""}</td>
-          <td>${o.productDescription || ""}</td>
-          <td>${o.unitsPerCase || ""}</td>
-          <td>${fmtMoney(o.cur_unitBottleCost)}</td>
-          <td>${fmtMoney(o.m1_unitBottleCost)}</td>
-          <td>${fmtMoney(o.m2_unitBottleCost)}</td>
-          <td>${fmtMoney(o.m3_unitBottleCost)}</td>
-          <td><span class="badge warn">${o.periodCaseBuyDays || ""}</span></td>
-        `;
-        tb.appendChild(tr);
-      });
-      $("offMsg").textContent = `${rows.length} item(s)`;
-    } catch (e) {
-      $("offMsg").textContent = e.message;
+    async function refreshOffDeal(){
+      $("offMsg").textContent = "Loading...";
+      try {
+        const res = await apiPost("/manager/off-deal", {}, true);
+        const rows = res.rows || [];
+        const tb = $("offBody");
+        tb.innerHTML = "";
+        rows.forEach(o => {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td class="mono">${o.batchId || ""}</td>
+            <td class="mono">${o.productId || ""}</td>
+            <td>${o.productDescription || ""}</td>
+            <td>${o.unitsPerCase || ""}</td>
+            <td>${fmtMoney(o.cur_unitBottleCost)}</td>
+            <td>${fmtMoney(o.m1_unitBottleCost)}</td>
+            <td>${fmtMoney(o.m2_unitBottleCost)}</td>
+            <td>${fmtMoney(o.m3_unitBottleCost)}</td>
+            <td><span class="badge warn">${o.periodCaseBuyDays || ""}</span></td>
+          `;
+          tb.appendChild(tr);
+        });
+        $("offMsg").textContent = `${rows.length} item(s)`;
+      } catch (e) {
+        $("offMsg").textContent = e.message;
+      }
     }
-  }
 
-  async function refreshAll(){
-    await refreshVendors();
-    await refreshReps();
-    await refreshOffDeal();
-  }
+    async function refreshAll(){
+      await refreshVendors();
+      await refreshReps();
+      await refreshOffDeal();
+    }
 
-  $("loginBtn").onclick = doLogin;
-  $("logoutBtn").onclick = logout;
-  $("uploadBtn").onclick = uploadInventory;
+    $("loginBtn").onclick = doLogin;
+    $("logoutBtn").onclick = logout;
+    $("uploadBtn").onclick = uploadInventory;
 
-  $("refreshVendorsBtn").onclick = refreshVendors;
-  $("refreshRepsBtn").onclick = refreshReps;
-  $("refreshOffBtn").onclick = refreshOffDeal;
+    $("refreshVendorsBtn").onclick = refreshVendors;
+    $("refreshRepsBtn").onclick = refreshReps;
+    $("refreshOffBtn").onclick = refreshOffDeal;
 
-  renderAuthState();
-  if (getUser()?.role === "MANAGER" && getToken()) refreshAll();
-</script>
+    renderAuthState();
+    if (getUser()?.role === "MANAGER" && getToken()) refreshAll();
+  </script>
 </body>
 </html>
