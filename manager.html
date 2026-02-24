@@ -125,41 +125,63 @@
   async function uploadInventory(){
     const f = $("file").files[0];
     if (!f) return alert("Choose an Excel file first.");
+  
+    const fileName = f.name.toLowerCase();
+    if (!fileName.endsWith(".xlsx") && !fileName.endsWith(".xls")) {
+      return alert("Please upload an Excel file (.xlsx or .xls).");
+    }
+  
     $("uploadMsg").innerHTML = "<small>Reading file...</small>";
-
-    const buf = await f.arrayBuffer();
-    const wb = XLSX.read(buf, { type: "array" });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
-
-    // Find correct headers (exact names you gave)
-    // We’ll accept slight variants too.
-    const items = [];
-    const seen = new Set();
-
-    for (const r of rows) {
-      const productId =
-        String(r["Item No."] || r["Item No"] || r["ItemNo"] || r["Item #"] || "").trim();
-      const productDescription =
-        String(r["Description"] || r["Desc"] || "").trim();
-
-      if (!productId || !productDescription) continue;
-      if (seen.has(productId)) continue;
-      seen.add(productId);
-      items.push({ productId, productDescription });
-    }
-
-    if (!items.length) {
-      $("uploadMsg").innerHTML = "<small class='badge bad'>No valid rows found (need Item No. + Description)</small>";
-      return;
-    }
-
-    $("uploadMsg").innerHTML = `<small>Uploading ${items.length} items...</small>`;
+  
     try {
+      const buf = await f.arrayBuffer();
+  
+      // SheetJS auto-detects format (.xls or .xlsx)
+      const wb = XLSX.read(buf, {
+        type: "array",
+        cellDates: false,
+        cellText: false
+      });
+  
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      if (!ws) throw new Error("No worksheet found in file.");
+  
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
+  
+      const items = [];
+      const seen = new Set();
+  
+      for (const r of rows) {
+        const productId =
+          String(r["Item No."] || r["Item No"] || r["ItemNo"] || r["Item #"] || "").trim();
+  
+        const productDescription =
+          String(r["Description"] || r["Desc"] || "").trim();
+  
+        if (!productId || !productDescription) continue;
+        if (seen.has(productId)) continue;
+  
+        seen.add(productId);
+        items.push({ productId, productDescription });
+      }
+  
+      if (!items.length) {
+        $("uploadMsg").innerHTML =
+          "<small class='badge bad'>No valid rows found. Make sure file has 'Item No.' and 'Description' columns.</small>";
+        return;
+      }
+  
+      $("uploadMsg").innerHTML = `<small>Uploading ${items.length} items...</small>`;
+  
       const res = await apiPost("/manager/inventory/upload", { items }, true);
-      $("uploadMsg").innerHTML = `<small class="badge ok">Uploaded ${res.count} items</small>`;
-    } catch (e) {
-      $("uploadMsg").innerHTML = `<small class="badge bad">${e.message}</small>`;
+  
+      $("uploadMsg").innerHTML =
+        `<small class="badge ok">Uploaded ${res.count} items successfully</small>`;
+  
+    } catch (err) {
+      console.error(err);
+      $("uploadMsg").innerHTML =
+        `<small class="badge bad">Error reading Excel file. If using very old .xls format, please re-save as .xlsx.</small>`;
     }
   }
 
