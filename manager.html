@@ -6,7 +6,7 @@
   <title>Manager Portal</title>
   <link rel="stylesheet" href="styles.css" />
 
-  <!-- ✅ REQUIRED: SheetJS must load BEFORE our scripts use XLSX -->
+  <!-- SheetJS (works for .xlsx and many .xls) -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
@@ -72,19 +72,27 @@
           <button id="refreshOffBtn" class="primary">Refresh</button>
           <small id="offMsg"></small>
         </div>
+
         <div style="overflow:auto;margin-top:10px">
           <table class="table">
             <thead>
               <tr>
-                <th>Batch</th>
+                <th>Rep Name</th>
                 <th>SKU</th>
                 <th>Description</th>
-                <th>Units/Case</th>
-                <th>Cur Bt</th>
-                <th>+1 Bt</th>
-                <th>+2 Bt</th>
-                <th>+3 Bt</th>
-                <th>Period</th>
+                <th>Suggested Buying Period</th>
+
+                <th id="mh_m0_price"></th>
+                <th id="mh_m0_deal"></th>
+
+                <th id="mh_m1_price"></th>
+                <th id="mh_m1_deal"></th>
+
+                <th id="mh_m2_price"></th>
+                <th id="mh_m2_deal"></th>
+
+                <th id="mh_m3_price"></th>
+                <th id="mh_m3_deal"></th>
               </tr>
             </thead>
             <tbody id="offBody"></tbody>
@@ -95,7 +103,6 @@
     </div>
   </div>
 
-  <!-- ✅ app.js must load AFTER SheetJS so our inline script can use helper funcs + XLSX -->
   <script src="app.js"></script>
 
   <script>
@@ -128,7 +135,38 @@
       renderAuthState();
     }
 
-    // ✅ Improved upload: supports .xlsx and many .xls files, with UI progress updates
+    /* ---------- Dynamic month headers (calendar months) ---------- */
+    function monthLabel(d) {
+      return d.toLocaleString(undefined, { month: "short", year: "numeric" }); // e.g. "Feb 2026"
+    }
+
+    function setOffDealMonthHeaders() {
+      const now = new Date();
+      const m0 = new Date(now.getFullYear(), now.getMonth(), 1);
+      const m1 = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      const m2 = new Date(now.getFullYear(), now.getMonth() + 2, 1);
+      const m3 = new Date(now.getFullYear(), now.getMonth() + 3, 1);
+      const labels = [monthLabel(m0), monthLabel(m1), monthLabel(m2), monthLabel(m3)];
+
+      const set = (id, text) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = text;
+      };
+
+      set("mh_m0_price", `${labels[0]} Case Price`);
+      set("mh_m0_deal",  `${labels[0]} Case Deal`);
+
+      set("mh_m1_price", `${labels[1]} Case Price`);
+      set("mh_m1_deal",  `${labels[1]} Case Deal`);
+
+      set("mh_m2_price", `${labels[2]} Case Price`);
+      set("mh_m2_deal",  `${labels[2]} Case Deal`);
+
+      set("mh_m3_price", `${labels[3]} Case Price`);
+      set("mh_m3_deal",  `${labels[3]} Case Deal`);
+    }
+
+    /* ---------- Inventory upload (SheetJS) ---------- */
     async function uploadInventory(){
       const f = $("file").files[0];
       if (!f) return alert("Choose an Excel file first.");
@@ -138,7 +176,6 @@
         return alert("Please upload an Excel file (.xlsx or .xls).");
       }
 
-      // Extra sanity check: SheetJS loaded
       if (typeof XLSX === "undefined") {
         $("uploadMsg").innerHTML =
           "<small class='badge bad'>SheetJS failed to load (XLSX is undefined). Refresh the page and try again.</small>";
@@ -206,6 +243,7 @@
       }
     }
 
+    /* ---------- Vendor & Rep toggles ---------- */
     async function refreshVendors(){
       $("vendorsMsg").textContent = "Loading...";
       try {
@@ -273,6 +311,19 @@
       }
     }
 
+    /* ---------- Off-deal table ---------- */
+    function fmtNum(x) {
+      const n = Number(x);
+      if (!isFinite(n) || n === 0) return "";
+      return n.toFixed(2);
+    }
+
+    function fmtInt(x) {
+      const n = Number(x);
+      if (!isFinite(n) || n === 0) return "";
+      return String(Math.trunc(n));
+    }
+
     async function refreshOffDeal(){
       $("offMsg").textContent = "Loading...";
       try {
@@ -280,21 +331,33 @@
         const rows = res.rows || [];
         const tb = $("offBody");
         tb.innerHTML = "";
+
         rows.forEach(o => {
+          const repName =
+            o.repName || o.repUsername || o.username || o.rep || "";
+
           const tr = document.createElement("tr");
           tr.innerHTML = `
-            <td class="mono">${o.batchId || ""}</td>
+            <td>${repName}</td>
             <td class="mono">${o.productId || ""}</td>
             <td>${o.productDescription || ""}</td>
-            <td>${o.unitsPerCase || ""}</td>
-            <td>${fmtMoney(o.cur_unitBottleCost)}</td>
-            <td>${fmtMoney(o.m1_unitBottleCost)}</td>
-            <td>${fmtMoney(o.m2_unitBottleCost)}</td>
-            <td>${fmtMoney(o.m3_unitBottleCost)}</td>
             <td><span class="badge warn">${o.periodCaseBuyDays || ""}</span></td>
+
+            <td>${fmtNum(o.cur_unitCaseCost)}</td>
+            <td>${fmtInt(o.cur_qtyCaseDeal)}</td>
+
+            <td>${fmtNum(o.m1_unitCaseCost)}</td>
+            <td>${fmtInt(o.m1_qtyCaseDeal)}</td>
+
+            <td>${fmtNum(o.m2_unitCaseCost)}</td>
+            <td>${fmtInt(o.m2_qtyCaseDeal)}</td>
+
+            <td>${fmtNum(o.m3_unitCaseCost)}</td>
+            <td>${fmtInt(o.m3_qtyCaseDeal)}</td>
           `;
           tb.appendChild(tr);
         });
+
         $("offMsg").textContent = `${rows.length} item(s)`;
       } catch (e) {
         $("offMsg").textContent = e.message;
@@ -302,6 +365,7 @@
     }
 
     async function refreshAll(){
+      setOffDealMonthHeaders(); // ✅ ensure header labels always correct
       await refreshVendors();
       await refreshReps();
       await refreshOffDeal();
@@ -315,7 +379,9 @@
     $("refreshRepsBtn").onclick = refreshReps;
     $("refreshOffBtn").onclick = refreshOffDeal;
 
+    // Init
     renderAuthState();
+    setOffDealMonthHeaders();
     if (getUser()?.role === "MANAGER" && getToken()) refreshAll();
   </script>
 </body>
