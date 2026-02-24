@@ -38,21 +38,20 @@
             <input id="lastName" placeholder="Last name" />
             <input id="phone" placeholder="Cell phone" />
           </div>
+
+          <!-- ✅ Vendor selection (clear label + Other textbox) -->
           <div style="margin-top:10px">
-          <div class="flex" style="align-items:flex-end">
-            <div style="display:flex;flex-direction:column;gap:6px">
-              <label for="vendorSelect"><small><b>Vendor</b> (select your company)</small></label>
-              <select id="vendorSelect"></select>
+            <label for="vendorSelect"><small><b>Vendor</b> (select your company)</small></label>
+            <select id="vendorSelect" style="width:100%; margin-top:6px;"></select>
+
+            <div id="vendorOtherWrap" class="hidden" style="margin-top:10px">
+              <label for="vendorOther"><small><b>If Other, type your vendor</b></small></label>
+              <input id="vendorOther" placeholder="Type your vendor name..." style="width:100%; margin-top:6px;" />
             </div>
-        
-            <div id="vendorOtherWrap" class="hidden" style="display:flex;flex-direction:column;gap:6px">
-              <label for="vendorOther"><small><b>Vendor name</b></small></label>
-              <input id="vendorOther" placeholder="Type your vendor (e.g., Southern Glazer’s)" />
-            </div>
+
+            <small>Don’t see your vendor? Choose <b>Other</b> and type it in.</small>
           </div>
-        
-          <small>Don’t see your vendor? Choose <b>Other</b> and type it in.</small>
-        </div>
+
           <div class="flex" style="margin-top:10px">
             <input id="pin" placeholder="Choose PIN (4+ digits)" inputmode="numeric" />
             <button class="primary" id="signupBtn">Create account</button>
@@ -125,10 +124,23 @@
   }
 
   async function loadVendors(){
-    const data = await apiPost("/vendors/list", {}, false); // public-ish; worker still calls apps script via bridge
-    state.vendors = data.vendors || [];
     const sel = $("vendorSelect");
+    // show loading state immediately
     sel.innerHTML = "";
+    const loading = document.createElement("option");
+    loading.value = "";
+    loading.textContent = "Loading vendors...";
+    sel.appendChild(loading);
+
+    try {
+      const data = await apiPost("/vendors/list", {}, false);
+      state.vendors = data.vendors || [];
+    } catch (e) {
+      state.vendors = [];
+    }
+
+    sel.innerHTML = "";
+
     const opt0 = document.createElement("option");
     opt0.value = "";
     opt0.textContent = "Select your vendor...";
@@ -140,10 +152,13 @@
       o.textContent = v.vendorName;
       sel.appendChild(o);
     }
+
     const other = document.createElement("option");
     other.value = "__OTHER__";
     other.textContent = "Other (add new)";
     sel.appendChild(other);
+
+    vendorUI();
   }
 
   function vendorUI(){
@@ -262,16 +277,13 @@
 
       const vSel = $("vendorSelect").value;
       let payload = { firstName, lastName, phone, pin };
-      if (vSel === "__OTHER__" && !payload.vendorName) {
-        return alert("Please type your vendor name.");
-      }
-      if (vSel !== "__OTHER__" && !payload.vendorId) {
-        return alert("Please select your vendor.");
-      }
+
       if (vSel === "__OTHER__") {
         payload.vendorName = $("vendorOther").value.trim();
+        if (!payload.vendorName) return alert("Please type your vendor name.");
       } else {
         payload.vendorId = vSel;
+        if (!payload.vendorId) return alert("Please select your vendor.");
       }
 
       const res = await apiPost("/rep/signup", payload, false);
@@ -300,7 +312,6 @@
 
   async function submitBatch(){
     if (!state.batch.length) return alert("Add at least one item.");
-    // basic validation
     for (const ln of state.batch) {
       if (!ln.unitsPerCase || Number(ln.unitsPerCase) <= 0) return alert(`Units/Case required for SKU ${ln.productId}`);
     }
@@ -335,9 +346,8 @@
     renderAuthState();
   }
 
-  // init
   renderAuthState();
-  loadVendors().then(vendorUI);
+  loadVendors();
   $("vendorSelect").addEventListener("change", vendorUI);
 
   $("signupBtn").onclick = doSignup;
