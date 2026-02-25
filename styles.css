@@ -13,6 +13,7 @@ input,select,textarea{padding:10px;border:1px solid var(--line);border-radius:10
 button{padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;cursor:pointer}
 button.primary{background:#111;color:#fff;border-color:#111}
 button.danger{background:#fff;border-color:#ffdddd;color:#b00000}
+button:disabled{opacity:.6;cursor:not-allowed}
 small{color:var(--g)}
 hr{border:none;border-top:1px solid var(--line);margin:14px 0}
 .table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}
@@ -26,3 +27,17 @@ hr{border:none;border-top:1px solid var(--line);margin:14px 0}
 .right{margin-left:auto}
 .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace}
 .hidden{display:none}
+
+/* Spinner */
+.spinner {
+  display:inline-block;
+  width:14px;
+  height:14px;
+  border:2px solid var(--line);
+  border-top:2px solid var(--b);
+  border-radius:50%;
+  animation:spin 0.8s cubic-bezier(.4,0,.2,1) infinite;
+  margin-right:8px;
+  vertical-align:middle;
+}
+@keyframes spin { to { transform:rotate(360deg); } }
