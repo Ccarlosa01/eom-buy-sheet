@@ -95,9 +95,12 @@
           <button id="clearBatchBtn" class="danger">Clear</button>
           <small id="batchMsg"></small>
         </div>
-        <div id="batchLoading" style="display:none; margin:10px 0; font-weight:600;">
+
+        <!-- ✅ Updated: use class hidden instead of inline display -->
+        <div id="batchLoading" class="hidden" style="margin:10px 0; font-weight:600;">
           <span class="spinner"></span> Loading latest batch...
         </div>
+
         <div style="overflow:auto;margin-top:10px">
           <table class="table" id="batchTable">
             <thead>
@@ -257,6 +260,9 @@
       m3_qtyCaseDeal: ""
     });
     renderBatch();
+
+    // keep dropdown tags accurate
+    if (ac.open) renderDropdown(ac.items);
   }
 
   function renderBatch(){
@@ -299,6 +305,9 @@
       const k = t.dataset.k;
       if (!Number.isInteger(i) || !k) return;
       state.batch[i][k] = t.value;
+
+      // update dropdown badges live
+      if (ac.open) renderDropdown(ac.items);
     });
 
     $("batchBody").addEventListener("change", (e) => {
@@ -307,6 +316,8 @@
       const k = t.dataset.k;
       if (!Number.isInteger(i) || !k) return;
       if (t.type === "checkbox") state.batch[i][k] = t.checked;
+
+      if (ac.open) renderDropdown(ac.items);
     });
 
     $("batchBody").addEventListener("click", (e) => {
@@ -428,7 +439,6 @@
       row.addEventListener("mouseenter", () => setActive(idx));
 
       row.addEventListener("mousedown", (e) => {
-        // mousedown so click works even if input loses focus
         e.preventDefault();
         if (inBatch) {
           $("searchStatus").innerHTML = "<small>Already in batch.</small>";
@@ -499,11 +509,8 @@
     let idx = ac.activeIndex;
     for (let step = 0; step < ac.items.length; step++) {
       idx = Math.max(0, Math.min(ac.items.length - 1, idx + delta));
-      // stop on any row (even disabled) so user can see it,
-      // but we prefer skipping disabled if possible:
       if (!isInBatch(ac.items[idx].productId)) break;
 
-      // if we hit the ends, break
       if ((delta > 0 && idx === ac.items.length - 1) || (delta < 0 && idx === 0)) break;
     }
     setActive(idx);
@@ -511,41 +518,55 @@
 
   /* -------- Auto-load latest submitted batch on login -------- */
   async function loadLatestBatchIntoTable() {
+    const loadingEl = $("batchLoading");
+    const submitBtn = $("submitBatchBtn");
+
     try {
-      // If you want "latest for current month only", uncomment these two lines:
+      // ✅ show loading + disable submit
+      loadingEl.classList.remove("hidden");
+      if (submitBtn) submitBtn.disabled = true;
+
+      // ✅ lock to current month (recommended, matches overwrite-by-month)
       const now = new Date();
       const batchMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
-  
-      const res = await apiPost("/rep/batch/latest", {
-        // batchMonth
-      }, true);
-  
+
+      const res = await apiPost("/rep/batch/latest", { batchMonth }, true);
+
       if (!res.ok) throw new Error(res.error || "Failed to load latest batch");
-      if (!res.hasBatch) return;
-  
+      if (!res.hasBatch) {
+        $("batchMsg").textContent = "";
+        return;
+      }
+
       state.batch = (res.lines || []).map(ln => ({
         productId: ln.productId,
         productDescription: ln.productDescription,
         unitsPerCase: (ln.unitsPerCase ? String(ln.unitsPerCase) : ""),
         permanentIncrease: !!ln.permanentIncrease,
-  
+
         cur_unitCaseCost: (ln.cur_unitCaseCost ? String(ln.cur_unitCaseCost) : ""),
         cur_qtyCaseDeal: (ln.cur_qtyCaseDeal ? String(ln.cur_qtyCaseDeal) : ""),
-  
+
         m1_unitCaseCost: (ln.m1_unitCaseCost ? String(ln.m1_unitCaseCost) : ""),
         m1_qtyCaseDeal: (ln.m1_qtyCaseDeal ? String(ln.m1_qtyCaseDeal) : ""),
-  
+
         m2_unitCaseCost: (ln.m2_unitCaseCost ? String(ln.m2_unitCaseCost) : ""),
         m2_qtyCaseDeal: (ln.m2_qtyCaseDeal ? String(ln.m2_qtyCaseDeal) : ""),
-  
+
         m3_unitCaseCost: (ln.m3_unitCaseCost ? String(ln.m3_unitCaseCost) : ""),
         m3_qtyCaseDeal: (ln.m3_qtyCaseDeal ? String(ln.m3_qtyCaseDeal) : "")
       }));
-  
+
       renderBatch();
       $("batchMsg").textContent = `Loaded latest batch (${res.batchId})`;
+      if (ac.open) renderDropdown(ac.items);
+
     } catch (e) {
       console.warn("Could not load latest batch:", e.message);
+    } finally {
+      // ✅ hide loading + enable submit
+      loadingEl.classList.add("hidden");
+      if (submitBtn) submitBtn.disabled = false;
     }
   }
 
@@ -636,6 +657,7 @@
       closeDropdown();
       $("searchQ").value = "";
       $("searchStatus").innerHTML = "<small></small>";
+
     } catch (e) {
       $("batchMsg").textContent = e.message;
     }
