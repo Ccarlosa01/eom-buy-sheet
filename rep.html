@@ -510,32 +510,38 @@
   /* -------- Auto-load latest submitted batch on login -------- */
   async function loadLatestBatchIntoTable() {
     try {
+      // If you want "latest for current month only", uncomment these two lines:
       const now = new Date();
       const batchMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
-      await apiPost("/rep/batch/latest", { batchMonth }, true);
+  
+      const res = await apiPost("/rep/batch/latest", {
+        // batchMonth
+      }, true);
+  
+      if (!res.ok) throw new Error(res.error || "Failed to load latest batch");
       if (!res.hasBatch) return;
-
+  
       state.batch = (res.lines || []).map(ln => ({
         productId: ln.productId,
         productDescription: ln.productDescription,
         unitsPerCase: (ln.unitsPerCase ? String(ln.unitsPerCase) : ""),
         permanentIncrease: !!ln.permanentIncrease,
-
+  
         cur_unitCaseCost: (ln.cur_unitCaseCost ? String(ln.cur_unitCaseCost) : ""),
         cur_qtyCaseDeal: (ln.cur_qtyCaseDeal ? String(ln.cur_qtyCaseDeal) : ""),
-
+  
         m1_unitCaseCost: (ln.m1_unitCaseCost ? String(ln.m1_unitCaseCost) : ""),
         m1_qtyCaseDeal: (ln.m1_qtyCaseDeal ? String(ln.m1_qtyCaseDeal) : ""),
-
+  
         m2_unitCaseCost: (ln.m2_unitCaseCost ? String(ln.m2_unitCaseCost) : ""),
         m2_qtyCaseDeal: (ln.m2_qtyCaseDeal ? String(ln.m2_qtyCaseDeal) : ""),
-
+  
         m3_unitCaseCost: (ln.m3_unitCaseCost ? String(ln.m3_unitCaseCost) : ""),
         m3_qtyCaseDeal: (ln.m3_qtyCaseDeal ? String(ln.m3_qtyCaseDeal) : "")
       }));
-
+  
       renderBatch();
-      $("batchMsg").textContent = `Loaded last submitted batch (${res.batchId})`;
+      $("batchMsg").textContent = `Loaded latest batch (${res.batchId})`;
     } catch (e) {
       console.warn("Could not load latest batch:", e.message);
     }
