@@ -70,6 +70,7 @@
         <h2>Off-Deal Items (anything not “No Buy”)</h2>
         <div class="flex">
           <button id="refreshOffBtn" class="primary">Refresh</button>
+          <button id="downloadOffBtn">Download .xlsx</button>
           <small id="offMsg"></small>
         </div>
 
@@ -344,11 +345,97 @@
       return String(Math.trunc(n));
     }
 
+    let OFF_ROWS_CACHE = []; // stores last fetched off-deal rows for download
+
+function ymKeyFromNow(offsetMonths = 0){
+  const d = new Date();
+  const dt = new Date(d.getFullYear(), d.getMonth() + offsetMonths, 1);
+  return dt.toLocaleString(undefined, { month: "short", year: "numeric" });
+}
+
+function downloadOffDealXlsx(){
+  if (typeof XLSX === "undefined") {
+    alert("SheetJS failed to load (XLSX is undefined). Refresh the page and try again.");
+    return;
+  }
+
+  if (!OFF_ROWS_CACHE.length) {
+    alert("No off-deal items to download. Click Refresh first.");
+    return;
+  }
+
+  // Dynamic month labels (must match what you show in the table)
+  const m0 = ymKeyFromNow(0);
+  const m1 = ymKeyFromNow(1);
+  const m2 = ymKeyFromNow(2);
+  const m3 = ymKeyFromNow(3);
+
+  // Build array-of-arrays with headers
+  const aoa = [];
+  aoa.push([
+    "Rep Name",
+    "SKU",
+    "Description",
+    "Suggested Buying Period",
+    `${m0} Case Price`,
+    `${m0} Case Deal`,
+    `${m1} Case Price`,
+    `${m1} Case Deal`,
+    `${m2} Case Price`,
+    `${m2} Case Deal`,
+    `${m3} Case Price`,
+    `${m3} Case Deal`
+  ]);
+
+  // Fill rows
+  for (const o of OFF_ROWS_CACHE) {
+    const repName = o.repName || "";
+    aoa.push([
+      repName,
+      o.productId || "",
+      o.productDescription || "",
+      o.periodCaseBuyDays || "",
+      Number(o.cur_unitCaseCost || 0) || "",
+      Number(o.cur_qtyCaseDeal || 0) || "",
+      Number(o.m1_unitCaseCost || 0) || "",
+      Number(o.m1_qtyCaseDeal || 0) || "",
+      Number(o.m2_unitCaseCost || 0) || "",
+      Number(o.m2_qtyCaseDeal || 0) || "",
+      Number(o.m3_unitCaseCost || 0) || "",
+      Number(o.m3_qtyCaseDeal || 0) || ""
+    ]);
+  }
+
+  // Create workbook
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+  // Optional: make the header row a bit wider (basic column widths)
+  ws["!cols"] = [
+    { wch: 20 }, // Rep Name
+    { wch: 12 }, // SKU
+    { wch: 45 }, // Description
+    { wch: 22 }, // Period
+    { wch: 16 }, { wch: 14 },
+    { wch: 16 }, { wch: 14 },
+    { wch: 16 }, { wch: 14 },
+    { wch: 16 }, { wch: 14 }
+  ];
+
+  XLSX.utils.book_append_sheet(wb, ws, "Off-Deal");
+
+  // Filename includes month
+  const now = new Date();
+  const ym = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+  XLSX.writeFile(wb, `off-deal_${ym}.xlsx`);
+}                                
+    
     async function refreshOffDeal(){
       $("offMsg").textContent = "Loading...";
       try {
         const res = await apiPost("/manager/off-deal", {}, true);
         const rows = res.rows || [];
+        OFF_ROWS_CACHE = rows;
         const tb = $("offBody");
         tb.innerHTML = "";
 
@@ -397,6 +484,7 @@
     $("refreshVendorsBtn").onclick = refreshVendors;
     $("refreshRepsBtn").onclick = refreshReps;
     $("refreshOffBtn").onclick = refreshOffDeal;
+    $("downloadOffBtn").onclick = downloadOffDealXlsx;
 
     // Init
     renderAuthState();
