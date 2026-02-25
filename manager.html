@@ -251,30 +251,50 @@
         const vendors = res.vendors || [];
         const div = $("vendorsList");
         div.innerHTML = "";
+    
+        // helper: default ACTIVE unless explicitly false/"FALSE"
+        function isActiveFlag(v) {
+          if (v === false) return false;
+          const s = String(v ?? "").trim().toUpperCase();
+          if (s === "FALSE") return false;
+          return true;
+        }
+    
         vendors.forEach(v => {
           const row = document.createElement("div");
           row.className = "card";
           row.style.padding = "10px";
           row.style.marginBottom = "8px";
-          const active = String(v.active).toUpperCase() === "TRUE";
+    
+          const active = isActiveFlag(v.active); // <-- FIXED
+    
           row.innerHTML = `
             <div class="flex">
               <div class="mono">${v.vendorId}</div>
               <div style="flex:1">${v.vendorName}</div>
-              <span class="badge ${active ? "ok":"bad"}">${active ? "Active":"Inactive"}</span>
+              <span class="badge ${active ? "ok":"bad"}">
+                ${active ? "Active":"Inactive"}
+              </span>
               <button>${active ? "Deactivate":"Activate"}</button>
-            </div>`;
+            </div>
+          `;
+    
           row.querySelector("button").onclick = async () => {
-            await apiPost("/manager/vendor/toggle", { vendorId: v.vendorId, active: !active }, true);
+            await apiPost("/manager/vendor/toggle", {
+              vendorId: v.vendorId,
+              active: !active
+            }, true);
             refreshVendors();
           };
+    
           div.appendChild(row);
         });
+    
         $("vendorsMsg").textContent = `${vendors.length} vendors`;
       } catch (e) {
         $("vendorsMsg").textContent = e.message;
       }
-    }
+    }      
 
     async function refreshReps(){
       $("repsMsg").textContent = "Loading...";
