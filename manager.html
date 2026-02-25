@@ -333,14 +333,7 @@
         tb.innerHTML = "";
 
         rows.forEach(o => {
-          const repName =
-            o.repName ||
-            o.repUsername ||
-            o.username ||
-            o.createdByUsername ||
-            o.repUser ||
-            o.rep ||
-            o.repId || "";
+          const repName = o.repName || "";
 
           const tr = document.createElement("tr");
           tr.innerHTML = `
