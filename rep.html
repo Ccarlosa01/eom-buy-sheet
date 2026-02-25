@@ -510,7 +510,9 @@
   /* -------- Auto-load latest submitted batch on login -------- */
   async function loadLatestBatchIntoTable() {
     try {
-      const res = await apiPost("/rep/batch/latest", {}, true);
+      const now = new Date();
+      const batchMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+      await apiPost("/rep/batch/latest", { batchMonth }, true);
       if (!res.hasBatch) return;
 
       state.batch = (res.lines || []).map(ln => ({
