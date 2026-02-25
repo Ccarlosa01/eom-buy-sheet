@@ -518,55 +518,62 @@
 
   /* -------- Auto-load latest submitted batch on login -------- */
   async function loadLatestBatchIntoTable() {
-    const loadingEl = $("batchLoading");
-    const submitBtn = $("submitBatchBtn");
-
+    const loader = document.getElementById("batchLoading");
     try {
-      // ✅ show loading + disable submit
-      loadingEl.classList.remove("hidden");
-      if (submitBtn) submitBtn.disabled = true;
-
-      // ✅ lock to current month (recommended, matches overwrite-by-month)
+      if (loader) loader.style.display = "block";
+  
       const now = new Date();
-      const batchMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
-      
-      const res = await apiPost("/rep/batch/latest", { batchMonth }, true);
-
+      const batchMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  
+      const res = await apiPost("/rep/batch/latest", {
+        batchMonth,
+        rollForward: true
+      }, true);
+  
       if (!res.ok) throw new Error(res.error || "Failed to load latest batch");
+  
       if (!res.hasBatch) {
-        $("batchMsg").textContent = "";
+        state.batch = [];
+        renderBatch();
+        $("batchMsg").textContent = `No saved batch found for ${batchMonth}.`;
         return;
       }
-
+  
+      // Map returned lines into your UI state
       state.batch = (res.lines || []).map(ln => ({
         productId: ln.productId,
         productDescription: ln.productDescription,
         unitsPerCase: (ln.unitsPerCase ? String(ln.unitsPerCase) : ""),
         permanentIncrease: !!ln.permanentIncrease,
-
+  
         cur_unitCaseCost: (ln.cur_unitCaseCost ? String(ln.cur_unitCaseCost) : ""),
         cur_qtyCaseDeal: (ln.cur_qtyCaseDeal ? String(ln.cur_qtyCaseDeal) : ""),
-
+  
         m1_unitCaseCost: (ln.m1_unitCaseCost ? String(ln.m1_unitCaseCost) : ""),
         m1_qtyCaseDeal: (ln.m1_qtyCaseDeal ? String(ln.m1_qtyCaseDeal) : ""),
-
+  
         m2_unitCaseCost: (ln.m2_unitCaseCost ? String(ln.m2_unitCaseCost) : ""),
         m2_qtyCaseDeal: (ln.m2_qtyCaseDeal ? String(ln.m2_qtyCaseDeal) : ""),
-
+  
         m3_unitCaseCost: (ln.m3_unitCaseCost ? String(ln.m3_unitCaseCost) : ""),
         m3_qtyCaseDeal: (ln.m3_qtyCaseDeal ? String(ln.m3_qtyCaseDeal) : "")
       }));
-
+  
       renderBatch();
-      $("batchMsg").textContent = `Loaded latest batch (${res.batchId})`;
-      if (ac.open) renderDropdown(ac.items);
-
+  
+      // Optional: show whether it rolled forward
+      if (res.sourceBatchMonth && res.sourceBatchMonth !== batchMonth) {
+        $("batchMsg").textContent =
+          `Loaded from ${res.sourceBatchMonth} and rolled forward to ${batchMonth}.`;
+      } else {
+        $("batchMsg").textContent = `Loaded latest batch for ${batchMonth} (${res.batchId})`;
+      }
+  
     } catch (e) {
       console.warn("Could not load latest batch:", e.message);
+      $("batchMsg").textContent = "";
     } finally {
-      // ✅ hide loading + enable submit
-      loadingEl.classList.add("hidden");
-      if (submitBtn) submitBtn.disabled = false;
+      if (loader) loader.style.display = "none";
     }
   }
 
